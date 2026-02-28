@@ -226,7 +226,13 @@
             });
         }
     
-        
+        function startFallbackTimer(minutes) {
+            sessionState.mode = 'timer';
+            sessionState.timeLeft += (minutes * 60);
+            timerDisplay.innerText = formatTime(sessionState.timeLeft);
+            startClock();
+        }
+
         
     </script>
 </body>

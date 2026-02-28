@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Zen Voice - Active</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Custom Breathing Animation for engaging UI */
@@ -25,6 +28,7 @@
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
+        
     </style>
 </head>
 <body class="bg-gradient-zen text-white flex flex-col h-screen overflow-hidden font-sans selection:bg-transparent">
@@ -200,6 +204,24 @@
         } else {
             statusText.innerText = "Speech recognition not supported on this browser.";
         }
+        
+                // ... previous voice recognition code ...
+
+        // --- 6. Progressive Web App Registration ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    })
+                    .catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
+    
+        
+        
     </script>
 </body>
 </html>

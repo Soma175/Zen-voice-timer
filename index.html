@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Zen Voice Portable</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white flex flex-col h-screen overflow-hidden font-sans selection:bg-transparent">
+
+    <div class="h-16 flex flex-col items-center justify-center pt-6 px-4 text-center">
+        <p id="status" class="text-xs md:text-sm text-gray-500 tracking-widest uppercase font-semibold">
+            Tap mic and say "Set timer for 5 minutes"
+        </p>
+        <p id="streakDisplay" class="text-xs text-blue-400 mt-1 hidden">Total Sessions: 0</p>
+    </div>
+    
+    <div class="flex-1 flex items-center justify-center w-full px-2">
+        <div id="timerDisplay" class="text-[35vw] md:text-[25vw] leading-none font-black text-blue-400 tracking-tighter drop-shadow-2xl transition-all duration-300">
+            00:00
+        </div>
+    </div>
+
+    <div class="h-32 pb-8 flex items-center justify-center">
+        <button id="micBtn" class="bg-gray-800 text-4xl p-8 rounded-full shadow-2xl hover:bg-gray-700 active:scale-90 transition-all duration-200 focus:outline-none ring-4 ring-gray-900">
+            🎤
+        </button>
+    </div>
+
+    <script>
+        // --- 1. State Management ---
+        const sessionState = {
+            mode: null,
+            timeLeft: 0,
+            initialDuration: 0,
+            isRunning: false,
+            intervalId: null
+        };
+
+        const timerDisplay = document.getElementById('timerDisplay');
+        const statusText = document.getElementById('status');
+        const micBtn = document.getElementById('micBtn');
+        const streakDisplay = document.getElementById('streakDisplay');
+
+        // --- 2. Local Storage Database Engine ---
+        function saveSessionLocally(type, durationSeconds) {
+            // Retrieve existing sessions from phone storage, or start an empty array
+            let sessions = JSON.parse(localStorage.getItem('zenSessions')) || [];
+            
+            const newSession = {
+                id: Date.now(),
+                type: type,
+                duration: durationSeconds,
+                date: new Date().toISOString()
+            };
+            
+            sessions.push(newSession);
+            localStorage.setItem('zenSessions', JSON.stringify(sessions));
+            
+            updateStreakDisplay();
+        }
+
+        function updateStreakDisplay() {
+            let sessions = JSON.parse(localStorage.getItem('zenSessions')) || [];
+            if (sessions.length > 0) {
+                streakDisplay.innerText = `Total Sessions Saved: ${sessions.length}`;
+                streakDisplay.classList.remove('hidden');
+            }
+        }
+
+        // Initialize display on load
+        updateStreakDisplay();
+
+        // --- 3. Core Timer Logic ---
+        function formatTime(seconds) {
+            let m = Math.floor(seconds / 60).toString().padStart(2, '0');
+            let s = (seconds % 60).toString().padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        function tick() {
+            if (sessionState.timeLeft > 0) {
+                sessionState.timeLeft--;
+                timerDisplay.innerText = formatTime(sessionState.timeLeft);
+            } else {
+                stopClock();
+                statusText.innerText = "Session Complete & Saved locally! 🙏";
+                timerDisplay.innerText = "00:00";
+                
+                // Save directly to the phone's local storage instead of a backend
+                saveSessionLocally("meditation", sessionState.initialDuration);
+            }
+        }
+
+        function startClock() {
+            if (sessionState.isRunning) return;
+            sessionState.isRunning = true;
+            sessionState.intervalId = setInterval(tick, 1000);
+            statusText.innerText = "Session Active";
+        }
+
+        function stopClock() {
+            sessionState.isRunning = false;
+            clearInterval(sessionState.intervalId);
+        }
+
+        function resetSession() {
+            stopClock();
+            sessionState.mode = null;
+            sessionState.timeLeft = 0;
+            timerDisplay.innerText = "00:00";
+            statusText.innerText = "Session Reset.";
+        }
+
+        // --- 4. Voice Parsing Engine ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.lang = 'en-US';
+
+            micBtn.onclick = () => {
+                recognition.start();
+                statusText.innerText = "Listening...";
+                micBtn.classList.add("bg-blue-600");
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript.toLowerCase();
+                micBtn.classList.remove("bg-blue-600");
+                
+                const timerMatch = transcript.match(/set timer for (\d+)\s*minute/);
+                if (timerMatch) {
+                    let minutes = parseInt(timerMatch[1]);
+                    sessionState.mode = 'timer';
+                    sessionState.timeLeft = minutes * 60;
+                    sessionState.initialDuration = sessionState.timeLeft; // Remember for saving
+                    timerDisplay.innerText = formatTime(sessionState.timeLeft);
+                    startClock();
+                } else if (transcript.includes("pause") || transcript.includes("stop")) {
+                    stopClock();
+                    statusText.innerText = "Session Paused";
+                } else if (transcript.includes("resume") || transcript.includes("continue")) {
+                    startClock();
+                } else if (transcript.includes("reset")) {
+                    resetSession();
+                } else {
+                    statusText.innerText = `Command not recognized: "${transcript}"`;
+                }
+            };
+            
+            recognition.onerror = (event) => {
+                micBtn.classList.remove("bg-blue-600");
+                statusText.innerText = `Microphone error: ${event.error}`;
+            };
+        } else {
+            statusText.innerText = "Speech recognition not supported on this browser.";
+        }
+    </script>
+</body>
+</html>

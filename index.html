@@ -3,21 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zen Voice - Active</title>
-    <link rel="manifest" href="manifest.json">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Zen Voice Timer</title>
     
+    <link rel="manifest" href="manifest.json">
     <script src="https://cdn.tailwindcss.com"></script>
+    
     <style>
-        /* Custom Breathing Animation for engaging UI */
         @keyframes breathe {
             0%, 100% { transform: scale(1); opacity: 0.3; }
             50% { transform: scale(1.4); opacity: 0.1; }
         }
-        .animate-breathe {
-            animation: breathe 8s infinite ease-in-out;
-        }
-        /* Calming animated gradient background */
+        .animate-breathe { animation: breathe 8s infinite ease-in-out; }
+        
         .bg-gradient-zen {
             background: linear-gradient(-45deg, #0f2027, #203a43, #2c5364);
             background-size: 400% 400%;
@@ -28,7 +26,6 @@
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
-        
     </style>
 </head>
 <body class="bg-gradient-zen text-white flex flex-col h-screen overflow-hidden font-sans selection:bg-transparent">
@@ -37,27 +34,27 @@
         <p id="status" class="text-sm md:text-base text-teal-200 tracking-widest uppercase font-semibold transition-opacity">
             Tap the mic to awaken
         </p>
-        <p id="lastCommand" class="text-xs text-gray-400 mt-2 italic h-4"></p>
+        <p id="lastCommand" class="text-xs text-gray-400 mt-1 italic h-4"></p>
+        <p id="streakDisplay" class="text-xs text-blue-400 mt-1 hidden">Sessions: 0</p>
     </div>
     
     <div class="flex-1 flex items-center justify-center w-full relative z-0">
         <div id="halo" class="absolute w-64 h-64 md:w-96 md:h-96 bg-teal-500 rounded-full blur-3xl hidden"></div>
-        
         <div id="timerDisplay" class="relative z-10 text-[35vw] md:text-[25vw] leading-none font-black text-white tracking-tighter drop-shadow-2xl tabular-nums">
             00:00
         </div>
     </div>
 
-    <div class="h-32 pb-8 flex items-center justify-center z-10">
-        <button id="micBtn" class="bg-white/10 backdrop-blur-md text-4xl p-8 rounded-full shadow-[0_0_30px_rgba(20,184,166,0.3)] border border-white/20 transition-all duration-300 focus:outline-none">
+    <div class="flex flex-col items-center justify-end pb-8 z-10 h-48">
+        <button id="micBtn" class="bg-white/10 backdrop-blur-md text-4xl p-8 rounded-full shadow-[0_0_30px_rgba(20,184,166,0.3)] border border-white/20 transition-all duration-300 focus:outline-none mb-6">
             🎙️
         </button>
-    <div class="flex gap-4 pb-8 z-10 opacity-50 hover:opacity-100 transition-opacity">
-        <button onclick="startFallbackTimer(5)" class="px-6 py-2 border border-white/20 rounded-full text-sm backdrop-blur-sm">+5 Min</button>
-        <button onclick="stopClock()" class="px-6 py-2 border border-white/20 rounded-full text-sm backdrop-blur-sm">Pause</button>
-        <button onclick="resetSession()" class="px-6 py-2 border border-white/20 rounded-full text-sm backdrop-blur-sm">Reset</button>
-    </div>
-
+        
+        <div class="flex gap-4 opacity-50 hover:opacity-100 transition-opacity">
+            <button onclick="startFallbackTimer(5)" class="px-6 py-2 border border-white/20 rounded-full text-xs font-semibold uppercase tracking-wider backdrop-blur-sm active:bg-white/20">+5 Min</button>
+            <button onclick="stopClock()" class="px-6 py-2 border border-white/20 rounded-full text-xs font-semibold uppercase tracking-wider backdrop-blur-sm active:bg-white/20">Pause</button>
+            <button onclick="resetSession()" class="px-6 py-2 border border-white/20 rounded-full text-xs font-semibold uppercase tracking-wider backdrop-blur-sm active:bg-white/20">Reset</button>
+        </div>
     </div>
 
     <script>
@@ -65,9 +62,11 @@
         const sessionState = {
             mode: null,
             timeLeft: 0,
+            initialDuration: 0,
             isRunning: false,
             intervalId: null,
-            isListeningEngineActive: false // Tracks if the user has permitted continuous listening
+            isListeningEngineActive: false,
+            isSpeaking: false
         };
 
         const timerDisplay = document.getElementById('timerDisplay');
@@ -75,8 +74,80 @@
         const lastCommandText = document.getElementById('lastCommand');
         const micBtn = document.getElementById('micBtn');
         const halo = document.getElementById('halo');
+        const streakDisplay = document.getElementById('streakDisplay');
 
-        // --- 2. Core Timer Logic ---
+        // --- 2. Local Storage Database ---
+        function saveSessionLocally(durationSeconds) {
+            let sessions = JSON.parse(localStorage.getItem('zenSessions')) || [];
+            sessions.push({ id: Date.now(), duration: durationSeconds, date: new Date().toISOString() });
+            localStorage.setItem('zenSessions', JSON.stringify(sessions));
+            updateStreakDisplay();
+        }
+
+        function updateStreakDisplay() {
+            let sessions = JSON.parse(localStorage.getItem('zenSessions')) || [];
+            if (sessions.length > 0) {
+                streakDisplay.innerText = `Total Sessions: ${sessions.length}`;
+                streakDisplay.classList.remove('hidden');
+            }
+        }
+        updateStreakDisplay();
+
+        // --- 3. Audio & Voice Engine ---
+        let audioCtx = null;
+        let audioUnlocked = false;
+
+        function initAudio() {
+            if (audioUnlocked) return;
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+            
+            // Silent unlock
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = 0;
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start(audioCtx.currentTime);
+            oscillator.stop(audioCtx.currentTime + 0.001);
+
+            audioUnlocked = true;
+        }
+
+        function playZenBell() {
+            if (!audioCtx) return;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(432, audioCtx.currentTime); 
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(1, audioCtx.currentTime + 0.05); 
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 3); 
+
+            oscillator.start(audioCtx.currentTime);
+            oscillator.stop(audioCtx.currentTime + 3);
+        }
+
+        function speakFeedback(text) {
+            if (!window.speechSynthesis) return;
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.9; 
+            utterance.pitch = 0.9; 
+            
+            utterance.onstart = () => { sessionState.isSpeaking = true; };
+            utterance.onend = () => { sessionState.isSpeaking = false; };
+            
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // --- 4. Timer Logic ---
         function formatTime(seconds) {
             let m = Math.floor(seconds / 60).toString().padStart(2, '0');
             let s = (seconds % 60).toString().padStart(2, '0');
@@ -89,9 +160,12 @@
                 timerDisplay.innerText = formatTime(sessionState.timeLeft);
             } else {
                 stopClock();
+                playZenBell();
+                speakFeedback("Session complete. Namaste.");
                 statusText.innerText = "Session Complete 🙏";
                 timerDisplay.innerText = "00:00";
                 halo.classList.remove('animate-breathe');
+                saveSessionLocally(sessionState.initialDuration);
             }
         }
 
@@ -119,64 +193,95 @@
             halo.classList.add('hidden');
         }
 
-        // --- 3. Advanced Voice Parsing Engine ---
-        function parseCommand(transcript) {
-            lastCommandText.innerText = `Heard: "${transcript}"`;
-            console.log("Parsing:", transcript);
+        // Fallback for offline mode
+        function startFallbackTimer(minutes) {
+            initAudio(); // Ensure audio unlocks even if started via button
+            sessionState.mode = 'timer';
+            sessionState.timeLeft += (minutes * 60);
+            sessionState.initialDuration = sessionState.timeLeft;
+            timerDisplay.innerText = formatTime(sessionState.timeLeft);
+            startClock();
+        }
 
-            // Robust Regex: Matches "10 minutes", "5 mins", "1 minute"
+        // --- 5. Intent Parsing ---
+        function parseCommand(transcript) {
+            if (sessionState.isSpeaking) return;
+
+            lastCommandText.innerText = `Heard: "${transcript}"`;
+
             const timerMatch = transcript.match(/(?:set|start)?\s*(?:a)?\s*(\d+)\s*(?:minute|minutes|min|mins)/);
             const secondsMatch = transcript.match(/(\d+)\s*(?:second|seconds|sec|secs)/);
 
             if (timerMatch || secondsMatch) {
                 let totalSeconds = 0;
-                if (timerMatch) totalSeconds += parseInt(timerMatch[1]) * 60;
-                if (secondsMatch) totalSeconds += parseInt(secondsMatch[1]);
+                let verbalMinutes = 0;
+                let verbalSeconds = 0;
+
+                if (timerMatch) { verbalMinutes = parseInt(timerMatch[1]); totalSeconds += verbalMinutes * 60; }
+                if (secondsMatch) { verbalSeconds = parseInt(secondsMatch[1]); totalSeconds += verbalSeconds; }
                 
                 sessionState.mode = 'timer';
                 sessionState.timeLeft = totalSeconds;
+                sessionState.initialDuration = totalSeconds;
                 timerDisplay.innerText = formatTime(sessionState.timeLeft);
+                
+                let feedback = "Setting timer for ";
+                if (verbalMinutes > 0) feedback += `${verbalMinutes} minute${verbalMinutes > 1 ? 's' : ''}`;
+                if (verbalMinutes > 0 && verbalSeconds > 0) feedback += " and ";
+                if (verbalSeconds > 0) feedback += `${verbalSeconds} second${verbalSeconds > 1 ? 's' : ''}`;
+                
+                speakFeedback(feedback);
                 startClock();
                 return;
             }
 
             if (transcript.includes("pause") || transcript.includes("stop") || transcript.includes("hold")) {
                 stopClock();
+                speakFeedback("Timer paused.");
                 statusText.innerText = "Paused";
                 return;
             }
 
             if (transcript.includes("resume") || transcript.includes("continue") || transcript.includes("start")) {
-                if (sessionState.timeLeft > 0) startClock();
+                if (sessionState.timeLeft > 0) { speakFeedback("Resuming."); startClock(); }
                 return;
             }
 
             if (transcript.includes("reset") || transcript.includes("clear")) {
+                speakFeedback("Timer reset.");
                 resetSession();
                 return;
             }
         }
 
-        // --- 4. The Continuous Listening Engine ---
+        // --- 6. Continuous Listening Engine ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
             const recognition = new SpeechRecognition();
-            recognition.continuous = true; // Crucial for always-on
+            recognition.continuous = true;
             recognition.interimResults = false;
             recognition.lang = 'en-US';
 
-            // Mobile browsers require a physical tap to start audio context
             micBtn.onclick = () => {
+                initAudio();
+                
+                if (!window.speechSynthesis.speaking) {
+                    let silentUtterance = new SpeechSynthesisUtterance('');
+                    silentUtterance.volume = 0;
+                    window.speechSynthesis.speak(silentUtterance);
+                }
+
                 if (!sessionState.isListeningEngineActive) {
                     sessionState.isListeningEngineActive = true;
-                    recognition.start();
+                    try { recognition.start(); } catch (e) {}
+                    speakFeedback("I am listening.");
                     micBtn.classList.add('bg-teal-500/50', 'scale-110');
                     micBtn.classList.remove('bg-white/10');
                     statusText.innerText = "Always listening. Say a command.";
                 } else {
-                    // Tap again to fully sleep the engine
                     sessionState.isListeningEngineActive = false;
                     recognition.stop();
+                    speakFeedback("Microphone asleep.");
                     micBtn.classList.remove('bg-teal-500/50', 'scale-110');
                     micBtn.classList.add('bg-white/10');
                     statusText.innerText = "Mic asleep. Tap to awaken.";
@@ -184,56 +289,28 @@
             };
 
             recognition.onresult = (event) => {
-                // Because continuous is true, we must grab the very last result in the array
                 const currentResultIndex = event.results.length - 1;
                 const transcript = event.results[currentResultIndex][0].transcript.toLowerCase().trim();
                 parseCommand(transcript);
             };
 
-            // The Self-Restarting Loop
             recognition.onend = () => {
                 if (sessionState.isListeningEngineActive) {
-                    // If the browser killed the mic but the user wants it on, immediately restart it
-                    console.log("Browser paused mic. Reigniting...");
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        console.error("Failed to restart mic:", e);
-                    }
+                    try { recognition.start(); } catch (e) {}
                 }
-            };
-            
-            recognition.onerror = (event) => {
-                console.log("Speech Error:", event.error);
-                // On 'no-speech' errors (silence), the onend event will fire and restart it anyway
             };
         } else {
             statusText.innerText = "Speech recognition not supported on this browser.";
         }
-        
-                // ... previous voice recognition code ...
 
-        // --- 6. Progressive Web App Registration ---
+        // --- 7. PWA Registration ---
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js')
-                    .then(registration => {
-                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                    })
-                    .catch(err => {
-                        console.log('ServiceWorker registration failed: ', err);
-                    });
+                    .then(registration => console.log('ServiceWorker registered:', registration.scope))
+                    .catch(err => console.log('ServiceWorker registration failed:', err));
             });
         }
-    
-        function startFallbackTimer(minutes) {
-            sessionState.mode = 'timer';
-            sessionState.timeLeft += (minutes * 60);
-            timerDisplay.innerText = formatTime(sessionState.timeLeft);
-            startClock();
-        }
-
-        
     </script>
 </body>
 </html>

@@ -242,8 +242,39 @@
             }
         }
 
-        // --- 8. Mic Controls ---
+        // --- 8. Mic Controls & Background State Management ---
         if (recognition) {
+            recognition.onstart = () => { isHardwareListening = true; };
+            
+            recognition.onend = () => {
+                isHardwareListening = false;
+                // Only auto-restart if the app is actually visible on the screen
+                if (sessionState.isListeningEngineActive && !sessionState.isSpeaking && !document.hidden) {
+                    try { recognition.start(); } catch (e) {}
+                }
+            };
+
+            // NEW: The Page Visibility API (Handles switching apps)
+            document.addEventListener("visibilitychange", () => {
+                if (document.hidden) {
+                    // App sent to background: OS kills mic anyway, so we cleanly abort it to prevent zombie state
+                    if (isHardwareListening) {
+                        recognition.abort();
+                        isHardwareListening = false;
+                    }
+                } else {
+                    // App returned to foreground: Reignite if it was supposed to be active
+                    if (sessionState.isListeningEngineActive && !sessionState.isSpeaking) {
+                        // Give the OS 500ms to re-allocate the audio hardware to the browser
+                        setTimeout(() => {
+                            if (!isHardwareListening) {
+                                try { recognition.start(); } catch (e) {}
+                            }
+                        }, 500); 
+                    }
+                }
+            });
+
             micBtn.onclick = () => {
                 initAudio();
                 if (!window.speechSynthesis.speaking) {
@@ -254,18 +285,29 @@
 
                 if (!sessionState.isListeningEngineActive) {
                     sessionState.isListeningEngineActive = true;
-                    try { 
-                        recognition.start(); 
-                        lastCommandText.innerText = "[System: Mic Started]";
-                    } catch (e) {
-                        lastCommandText.innerText = `[Error: ${e.message}]`;
+                    
+                    if (!isHardwareListening) {
+                        try { 
+                            recognition.start(); 
+                            lastCommandText.innerText = "[System: Mic Started]";
+                        } catch (e) {
+                            // NEW: Catch the specific Zombie State error gracefully
+                            if (e.name === 'InvalidStateError') {
+                                isHardwareListening = true; 
+                                lastCommandText.innerText = "[System: Mic Resumed]";
+                            } else {
+                                lastCommandText.innerText = `[Error: ${e.message}]`;
+                            }
+                        }
                     }
+                    
                     controlDock.classList.add('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
                     micActiveDot.classList.remove('hidden');
                     statusText.innerText = "LISTENING...";
                 } else {
                     sessionState.isListeningEngineActive = false;
-                    recognition.stop();
+                    if (isHardwareListening) recognition.stop();
+                    
                     speakFeedback("Microphone asleep.");
                     controlDock.classList.remove('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
                     micActiveDot.classList.add('hidden');
@@ -279,21 +321,19 @@
             };
 
             recognition.onerror = (event) => {
-                if (event.error !== 'no-speech') lastCommandText.innerText = `[Mic Error: ${event.error}]`;
+                isHardwareListening = false; 
+                if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                    lastCommandText.innerText = `[Mic Error: ${event.error}]`;
+                }
                 if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
                     statusText.innerText = "HARDWARE BLOCKED";
                     sessionState.isListeningEngineActive = false;
                     micActiveDot.classList.add('hidden');
                 }
             };
-
-            recognition.onend = () => {
-                if (sessionState.isListeningEngineActive && !sessionState.isSpeaking) {
-                    try { recognition.start(); } catch (e) {}
-                }
-            };
         }
 
+        
         // --- 9. PWA ---
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {

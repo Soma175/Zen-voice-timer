@@ -69,7 +69,7 @@
     </div>
 
     <script>
-        // --- 1. State Management ---
+                // --- 1. State Management ---
         const sessionState = {
             mode: null,
             timeLeft: 0,
@@ -89,6 +89,16 @@
         const streakDisplay = document.getElementById('streakDisplay');
         const streakBadge = document.getElementById('streakBadge');
         const controlDock = document.getElementById('controlDock');
+
+        // NEW: Declare recognition globally so the TTS engine can control it
+        let recognition = null;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+        }
 
         // --- 2. Local Storage Database ---
         function saveSessionLocally(durationSeconds) {
@@ -146,23 +156,31 @@
             oscillator.stop(audioCtx.currentTime + 3);
         }
 
-
         function speakFeedback(text) {
             if (!window.speechSynthesis) return;
             window.speechSynthesis.cancel();
+            
+            // 1. Lock the logic state
+            sessionState.isSpeaking = true;
+            
+            // 2. HARD KILL THE MIC: Abort drops all currently buffered audio immediately
+            if (recognition && sessionState.isListeningEngineActive) {
+                recognition.abort(); 
+            }
             
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = 0.9; 
             utterance.pitch = 0.9; 
             
-            utterance.onstart = () => { 
-                sessionState.isSpeaking = true; 
-            };
-            
             utterance.onend = () => { 
-                // The Echo Buffer: Wait 800ms after speaking finishes before unlocking the mic
+                // 3. The Echo Buffer
                 setTimeout(() => {
                     sessionState.isSpeaking = false; 
+                    
+                    // 4. Reignite the mic only after the physical echo is gone
+                    if (recognition && sessionState.isListeningEngineActive) {
+                        try { recognition.start(); } catch (e) {}
+                    }
                 }, 800);
             };
             
@@ -227,7 +245,6 @@
 
         // --- 5. Intent Parsing ---
         function parseCommand(transcript) {
-            // If the mute switch is on (or the echo buffer is active), ignore everything
             if (sessionState.isSpeaking) return;
 
             lastCommandText.innerText = `Heard: "${transcript}"`;
@@ -248,7 +265,6 @@
                 sessionState.initialDuration = totalSeconds;
                 timerDisplay.innerText = formatTime(sessionState.timeLeft);
                 
-                // Vocabulary Isolation: Avoid saying "Set" or "Start"
                 let feedback = "Beginning ";
                 if (verbalMinutes > 0) feedback += `${verbalMinutes} minute${verbalMinutes > 1 ? 's' : ''}`;
                 if (verbalMinutes > 0 && verbalSeconds > 0) feedback += " and ";
@@ -261,38 +277,25 @@
 
             if (transcript.includes("pause") || transcript.includes("stop") || transcript.includes("hold")) {
                 stopClock();
-                // Vocabulary Isolation: Avoid saying "Pause" or "Stop"
-                speakFeedback("Holding."); 
+                speakFeedback("Holding.");
                 statusText.innerText = "Paused";
                 return;
             }
 
             if (transcript.includes("resume") || transcript.includes("continue")) {
-                if (sessionState.timeLeft > 0) { 
-                    // Vocabulary Isolation: Avoid saying "Resume"
-                    speakFeedback("Flowing."); 
-                    startClock(); 
-                }
+                if (sessionState.timeLeft > 0) { speakFeedback("Flowing."); startClock(); }
                 return;
             }
 
             if (transcript.includes("reset") || transcript.includes("clear")) {
-                // Vocabulary Isolation: Avoid saying "Reset"
-                speakFeedback("Wiped."); 
+                speakFeedback("Wiped.");
                 resetSession();
                 return;
             }
         }
 
-
-        // --- 6. Continuous Listening Engine ---
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRecognition) {
-            const recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = false;
-            recognition.lang = 'en-US';
-
+        // --- 6. Continuous Listening Engine Controls ---
+        if (recognition) {
             micBtn.onclick = () => {
                 initAudio();
                 
@@ -307,7 +310,6 @@
                     try { recognition.start(); } catch (e) {}
                     speakFeedback("I am listening.");
                     
-                    // UI Updates for Active State
                     controlDock.classList.add('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
                     micActiveDot.classList.remove('hidden');
                     statusText.innerText = "Always listening. Say a command.";
@@ -316,7 +318,6 @@
                     recognition.stop();
                     speakFeedback("Microphone asleep.");
                     
-                    // UI Updates for Inactive State
                     controlDock.classList.remove('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
                     micActiveDot.classList.add('hidden');
                     statusText.innerText = "Mic asleep. Tap to awaken.";
@@ -330,7 +331,8 @@
             };
 
             recognition.onend = () => {
-                if (sessionState.isListeningEngineActive) {
+                // THE CRITICAL FIX: Do not auto-restart if the app is currently talking!
+                if (sessionState.isListeningEngineActive && !sessionState.isSpeaking) {
                     try { recognition.start(); } catch (e) {}
                 }
             };
@@ -346,6 +348,7 @@
                     .catch(err => console.log('ServiceWorker registration failed:', err));
             });
         }
+
     </script>
 </body>
 </html>

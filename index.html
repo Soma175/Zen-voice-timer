@@ -243,35 +243,50 @@
             startClock();
         }
 
-        // --- 5. Intent Parsing ---
+                  // --- 5. Intent Parsing (Upgraded with Word-to-Number support) ---
         function parseCommand(transcript) {
             if (sessionState.isSpeaking) return;
 
             lastCommandText.innerText = `Heard: "${transcript}"`;
 
-            const timerMatch = transcript.match(/(?:set|start)?\s*(?:a)?\s*(\d+)\s*(?:minute|minutes|min|mins)/);
-            const secondsMatch = transcript.match(/(\d+)\s*(?:second|seconds|sec|secs)/);
+            // Helper function to convert spelled words to digits
+            const text2num = (str) => {
+                const words = {'one':1, 'a':1, 'two':2, 'three':3, 'four':4, 'five':5, 'six':6, 'seven':7, 'eight':8, 'nine':9, 'ten':10, 'eleven':11, 'twelve':12, 'fifteen':15, 'twenty':20, 'thirty':30, 'forty':40, 'fifty':50, 'sixty':60};
+                return words[str] || parseInt(str);
+            };
+
+            // Upgraded Regex: Now looks for digits (\d+) OR words (one|two|five...)
+            const timerMatch = transcript.match(/(?:set|start)?\s*(?:a)?\s*(\d+|one|a|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty)\s*(?:minute|minutes|min|mins)/);
+            const secondsMatch = transcript.match(/(\d+|one|a|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|fifty|sixty)\s*(?:second|seconds|sec|secs)/);
 
             if (timerMatch || secondsMatch) {
                 let totalSeconds = 0;
                 let verbalMinutes = 0;
                 let verbalSeconds = 0;
 
-                if (timerMatch) { verbalMinutes = parseInt(timerMatch[1]); totalSeconds += verbalMinutes * 60; }
-                if (secondsMatch) { verbalSeconds = parseInt(secondsMatch[1]); totalSeconds += verbalSeconds; }
+                if (timerMatch) { 
+                    verbalMinutes = text2num(timerMatch[1]); 
+                    totalSeconds += verbalMinutes * 60; 
+                }
+                if (secondsMatch) { 
+                    verbalSeconds = text2num(secondsMatch[1]); 
+                    totalSeconds += verbalSeconds; 
+                }
                 
-                sessionState.mode = 'timer';
-                sessionState.timeLeft = totalSeconds;
-                sessionState.initialDuration = totalSeconds;
-                timerDisplay.innerText = formatTime(sessionState.timeLeft);
-                
-                let feedback = "Beginning ";
-                if (verbalMinutes > 0) feedback += `${verbalMinutes} minute${verbalMinutes > 1 ? 's' : ''}`;
-                if (verbalMinutes > 0 && verbalSeconds > 0) feedback += " and ";
-                if (verbalSeconds > 0) feedback += `${verbalSeconds} second${verbalSeconds > 1 ? 's' : ''}`;
-                
-                speakFeedback(feedback);
-                startClock();
+                if (totalSeconds > 0) {
+                    sessionState.mode = 'timer';
+                    sessionState.timeLeft = totalSeconds;
+                    sessionState.initialDuration = totalSeconds;
+                    timerDisplay.innerText = formatTime(sessionState.timeLeft);
+                    
+                    let feedback = "Beginning ";
+                    if (verbalMinutes > 0) feedback += `${verbalMinutes} minute${verbalMinutes > 1 ? 's' : ''}`;
+                    if (verbalMinutes > 0 && verbalSeconds > 0) feedback += " and ";
+                    if (verbalSeconds > 0) feedback += `${verbalSeconds} second${verbalSeconds > 1 ? 's' : ''}`;
+                    
+                    speakFeedback(feedback);
+                    startClock();
+                }
                 return;
             }
 
@@ -293,6 +308,7 @@
                 return;
             }
         }
+
 
         // --- 6. Continuous Listening Engine Controls ---
         if (recognition) {
@@ -339,6 +355,26 @@
         } else {
             statusText.innerText = "Speech recognition not supported on this browser.";
         }
+
+            // Add this error catcher to see exactly why it is failing
+            recognition.onerror = (event) => {
+                console.error("Speech Error: ", event.error);
+                
+                // 'no-speech' is common and harmless (just means room was quiet)
+                if (event.error !== 'no-speech') {
+                    lastCommandText.innerText = `Error: ${event.error}`;
+                    micActiveDot.classList.add('hidden');
+                    controlDock.classList.remove('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
+                }
+                
+                // If the network fails (offline), turn the engine off gracefully
+                if (event.error === 'network') {
+                    sessionState.isListeningEngineActive = false;
+                    statusText.innerText = "Offline. Mic requires internet.";
+                }
+            };
+
+
 
         // --- 7. PWA Registration ---
         if ('serviceWorker' in navigator) {

@@ -243,136 +243,119 @@
             startClock();
         }
 
-                  // --- 5. Intent Parsing (Upgraded with Word-to-Number support) ---
+                          // --- 5. Foolproof Intent Parsing ---
         function parseCommand(transcript) {
             if (sessionState.isSpeaking) return;
 
-            lastCommandText.innerText = `Heard: "${transcript}"`;
-
-            // Helper function to convert spelled words to digits
-            const text2num = (str) => {
-                const words = {'one':1, 'a':1, 'two':2, 'three':3, 'four':4, 'five':5, 'six':6, 'seven':7, 'eight':8, 'nine':9, 'ten':10, 'eleven':11, 'twelve':12, 'fifteen':15, 'twenty':20, 'thirty':30, 'forty':40, 'fifty':50, 'sixty':60};
-                return words[str] || parseInt(str);
-            };
-
-            // Upgraded Regex: Now looks for digits (\d+) OR words (one|two|five...)
-            const timerMatch = transcript.match(/(?:set|start)?\s*(?:a)?\s*(\d+|one|a|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty)\s*(?:minute|minutes|min|mins)/);
-            const secondsMatch = transcript.match(/(\d+|one|a|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|fifty|sixty)\s*(?:second|seconds|sec|secs)/);
-
-            if (timerMatch || secondsMatch) {
-                let totalSeconds = 0;
-                let verbalMinutes = 0;
-                let verbalSeconds = 0;
-
-                if (timerMatch) { 
-                    verbalMinutes = text2num(timerMatch[1]); 
-                    totalSeconds += verbalMinutes * 60; 
-                }
-                if (secondsMatch) { 
-                    verbalSeconds = text2num(secondsMatch[1]); 
-                    totalSeconds += verbalSeconds; 
-                }
-                
-                if (totalSeconds > 0) {
-                    sessionState.mode = 'timer';
-                    sessionState.timeLeft = totalSeconds;
-                    sessionState.initialDuration = totalSeconds;
-                    timerDisplay.innerText = formatTime(sessionState.timeLeft);
-                    
-                    let feedback = "Beginning ";
-                    if (verbalMinutes > 0) feedback += `${verbalMinutes} minute${verbalMinutes > 1 ? 's' : ''}`;
-                    if (verbalMinutes > 0 && verbalSeconds > 0) feedback += " and ";
-                    if (verbalSeconds > 0) feedback += `${verbalSeconds} second${verbalSeconds > 1 ? 's' : ''}`;
-                    
-                    speakFeedback(feedback);
-                    startClock();
-                }
-                return;
-            }
-
-            if (transcript.includes("pause") || transcript.includes("stop") || transcript.includes("hold")) {
+            // Strip all punctuation so "5 minutes." becomes "5 minutes"
+            const cleanText = transcript.replace(/[.,!?]/g, '').toLowerCase().trim();
+            lastCommandText.innerText = `Heard: "${cleanText}"`;
+            
+            // Check absolute basic commands first
+            if (cleanText.includes("pause") || cleanText.includes("stop")) {
                 stopClock();
-                speakFeedback("Holding.");
                 statusText.innerText = "Paused";
                 return;
             }
-
-            if (transcript.includes("resume") || transcript.includes("continue")) {
-                if (sessionState.timeLeft > 0) { speakFeedback("Flowing."); startClock(); }
+            if (cleanText.includes("resume") || cleanText.includes("continue")) {
+                startClock();
                 return;
             }
-
-            if (transcript.includes("reset") || transcript.includes("clear")) {
-                speakFeedback("Wiped.");
+            if (cleanText.includes("reset") || cleanText.includes("clear")) {
                 resetSession();
                 return;
             }
+
+            // Keyword Scanner: Look for the word 'minute', then check the word right before it
+            let totalSeconds = 0;
+            const words = cleanText.split(' ');
+            
+            for (let i = 0; i < words.length; i++) {
+                if (words[i].includes("min") || words[i].includes("minute")) {
+                    // Grab whatever word came immediately before "minute"
+                    let prevWord = words[i - 1];
+                    let val = parseInt(prevWord);
+                    
+                    // If it's not a number (like "five"), check our dictionary
+                    if (isNaN(val)) {
+                        const textMap = {'one':1, 'a':1, 'two':2, 'three':3, 'four':4, 'five':5, 'six':6, 'seven':7, 'eight':8, 'nine':9, 'ten':10, 'fifteen':15, 'twenty':20, 'thirty':30};
+                        val = textMap[prevWord] || 0;
+                    }
+                    totalSeconds += (val * 60);
+                }
+            }
+
+            // If we successfully extracted time, start the clock
+            if (totalSeconds > 0) {
+                sessionState.mode = 'timer';
+                sessionState.timeLeft = totalSeconds;
+                sessionState.initialDuration = totalSeconds;
+                timerDisplay.innerText = formatTime(sessionState.timeLeft);
+                startClock();
+            } else {
+                lastCommandText.innerText += " [No time detected]";
+            }
         }
 
+        // --- 6. Diagnostic Listening Engine ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
 
-        // --- 6. Continuous Listening Engine Controls ---
-        if (recognition) {
             micBtn.onclick = () => {
                 initAudio();
                 
-                if (!window.speechSynthesis.speaking) {
-                    let silentUtterance = new SpeechSynthesisUtterance('');
-                    silentUtterance.volume = 0;
-                    window.speechSynthesis.speak(silentUtterance);
-                }
-
                 if (!sessionState.isListeningEngineActive) {
                     sessionState.isListeningEngineActive = true;
-                    try { recognition.start(); } catch (e) {}
-                    speakFeedback("I am listening.");
+                    try { 
+                        recognition.start(); 
+                        lastCommandText.innerText = "[System: Mic Started]";
+                    } catch (e) {
+                        lastCommandText.innerText = `[System Error: ${e.message}]`;
+                    }
                     
                     controlDock.classList.add('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
                     micActiveDot.classList.remove('hidden');
-                    statusText.innerText = "Always listening. Say a command.";
+                    statusText.innerText = "Listening...";
                 } else {
                     sessionState.isListeningEngineActive = false;
                     recognition.stop();
-                    speakFeedback("Microphone asleep.");
-                    
                     controlDock.classList.remove('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
                     micActiveDot.classList.add('hidden');
-                    statusText.innerText = "Mic asleep. Tap to awaken.";
+                    statusText.innerText = "Mic asleep.";
                 }
             };
 
             recognition.onresult = (event) => {
                 const currentResultIndex = event.results.length - 1;
-                const transcript = event.results[currentResultIndex][0].transcript.toLowerCase().trim();
+                const transcript = event.results[currentResultIndex][0].transcript;
                 parseCommand(transcript);
             };
 
+            // Catch and display exact errors
+            recognition.onerror = (event) => {
+                if (event.error !== 'no-speech') {
+                    lastCommandText.innerText = `[Mic Error: ${event.error}]`;
+                }
+                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                    statusText.innerText = "Hardware Blocked.";
+                    sessionState.isListeningEngineActive = false;
+                    micActiveDot.classList.add('hidden');
+                }
+            };
+
             recognition.onend = () => {
-                // THE CRITICAL FIX: Do not auto-restart if the app is currently talking!
                 if (sessionState.isListeningEngineActive && !sessionState.isSpeaking) {
                     try { recognition.start(); } catch (e) {}
                 }
             };
         } else {
-            statusText.innerText = "Speech recognition not supported on this browser.";
+            statusText.innerText = "API NOT SUPPORTED.";
+            lastCommandText.innerText = "Please use Chrome or Safari.";
         }
-
-            // Add this error catcher to see exactly why it is failing
-            recognition.onerror = (event) => {
-                console.error("Speech Error: ", event.error);
-                
-                // 'no-speech' is common and harmless (just means room was quiet)
-                if (event.error !== 'no-speech') {
-                    lastCommandText.innerText = `Error: ${event.error}`;
-                    micActiveDot.classList.add('hidden');
-                    controlDock.classList.remove('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
-                }
-                
-                // If the network fails (offline), turn the engine off gracefully
-                if (event.error === 'network') {
-                    sessionState.isListeningEngineActive = false;
-                    statusText.innerText = "Offline. Mic requires internet.";
-                }
-            };
 
 
 

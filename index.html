@@ -7,53 +7,62 @@
     <title>Zen Voice Timer</title>
     
     <link rel="manifest" href="manifest.json">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     
     <style>
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Ultra-smooth breathing animation for the background glow */
         @keyframes breathe {
-            0%, 100% { transform: scale(1); opacity: 0.3; }
-            50% { transform: scale(1.4); opacity: 0.1; }
+            0%, 100% { transform: scale(0.8); opacity: 0.1; }
+            50% { transform: scale(1.2); opacity: 0.3; }
         }
         .animate-breathe { animation: breathe 8s infinite ease-in-out; }
         
-        .bg-gradient-zen {
-            background: linear-gradient(-45deg, #0f2027, #203a43, #2c5364);
-            background-size: 400% 400%;
-            animation: gradientBG 15s ease infinite;
-        }
-        @keyframes gradientBG {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
+        /* Deep OLED Black background */
+        .bg-oled { background-color: #000000; }
+        
+        /* Modern text glow */
+        .text-glow {
+            text-shadow: 0 0 80px rgba(20, 184, 166, 0.4);
         }
     </style>
 </head>
-<body class="bg-gradient-zen text-white flex flex-col h-screen overflow-hidden font-sans selection:bg-transparent">
+<body class="bg-oled text-white flex flex-col h-[100dvh] overflow-hidden selection:bg-transparent relative">
 
-    <div class="h-24 flex flex-col items-center justify-center pt-8 px-4 text-center z-10">
-        <p id="status" class="text-sm md:text-base text-teal-200 tracking-widest uppercase font-semibold transition-opacity">
+    <div class="absolute top-0 left-0 w-full pt-12 flex flex-col items-center justify-center z-20 pointer-events-none">
+        <p id="status" class="text-xs text-teal-400/80 tracking-[0.3em] uppercase font-semibold transition-opacity">
             Tap the mic to awaken
         </p>
-        <p id="lastCommand" class="text-xs text-gray-400 mt-1 italic h-4"></p>
-        <p id="streakDisplay" class="text-xs text-blue-400 mt-1 hidden">Sessions: 0</p>
+        <p id="lastCommand" class="text-[10px] text-gray-500 mt-2 italic h-4"></p>
+        <div id="streakBadge" class="mt-3 px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-md hidden">
+            <p id="streakDisplay" class="text-[10px] text-gray-300 uppercase tracking-widest font-medium">Sessions: 0</p>
+        </div>
     </div>
     
-    <div class="flex-1 flex items-center justify-center w-full relative z-0">
-        <div id="halo" class="absolute w-64 h-64 md:w-96 md:h-96 bg-teal-500 rounded-full blur-3xl hidden"></div>
-        <div id="timerDisplay" class="relative z-10 text-[35vw] md:text-[25vw] leading-none font-black text-white tracking-tighter drop-shadow-2xl tabular-nums">
+    <div class="flex-1 flex items-center justify-center w-full relative z-0 mt-8">
+        <div id="halo" class="absolute m-auto w-[80vw] h-[80vw] bg-teal-500 rounded-full blur-[100px] hidden opacity-0 transition-opacity duration-1000"></div>
+        
+        <div id="timerDisplay" class="relative z-10 text-[42vw] leading-none font-black text-white tracking-tighter tabular-nums text-glow">
             00:00
         </div>
     </div>
 
-    <div class="flex flex-col items-center justify-end pb-8 z-10 h-48">
-        <button id="micBtn" class="bg-white/10 backdrop-blur-md text-4xl p-8 rounded-full shadow-[0_0_30px_rgba(20,184,166,0.3)] border border-white/20 transition-all duration-300 focus:outline-none mb-6">
-            🎙️
-        </button>
-        
-        <div class="flex gap-4 opacity-50 hover:opacity-100 transition-opacity">
-            <button onclick="startFallbackTimer(5)" class="px-6 py-2 border border-white/20 rounded-full text-xs font-semibold uppercase tracking-wider backdrop-blur-sm active:bg-white/20">+5 Min</button>
-            <button onclick="stopClock()" class="px-6 py-2 border border-white/20 rounded-full text-xs font-semibold uppercase tracking-wider backdrop-blur-sm active:bg-white/20">Pause</button>
-            <button onclick="resetSession()" class="px-6 py-2 border border-white/20 rounded-full text-xs font-semibold uppercase tracking-wider backdrop-blur-sm active:bg-white/20">Reset</button>
+    <div class="absolute bottom-10 left-0 w-full px-6 flex justify-center z-20">
+        <div class="flex items-center gap-6 bg-[#111] border border-white/10 backdrop-blur-2xl px-8 py-4 rounded-full shadow-[0_20px_40px_rgba(0,0,0,0.8)] transition-all duration-300" id="controlDock">
+            
+            <button id="micBtn" class="text-3xl hover:scale-110 active:scale-95 transition-transform focus:outline-none relative">
+                🎙️
+                <span id="micActiveDot" class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full hidden shadow-[0_0_10px_rgba(239,68,68,0.8)]"></span>
+            </button>
+            
+            <div class="w-px h-8 bg-white/10"></div>
+            
+            <button onclick="startFallbackTimer(5)" class="text-xs font-semibold text-gray-400 hover:text-white uppercase tracking-widest transition-colors active:scale-95">+5m</button>
+            <button onclick="stopClock()" class="text-xs font-semibold text-gray-400 hover:text-white uppercase tracking-widest transition-colors active:scale-95">Pause</button>
+            <button onclick="resetSession()" class="text-xs font-semibold text-gray-400 hover:text-white uppercase tracking-widest transition-colors active:scale-95">Reset</button>
         </div>
     </div>
 
@@ -73,8 +82,11 @@
         const statusText = document.getElementById('status');
         const lastCommandText = document.getElementById('lastCommand');
         const micBtn = document.getElementById('micBtn');
+        const micActiveDot = document.getElementById('micActiveDot');
         const halo = document.getElementById('halo');
         const streakDisplay = document.getElementById('streakDisplay');
+        const streakBadge = document.getElementById('streakBadge');
+        const controlDock = document.getElementById('controlDock');
 
         // --- 2. Local Storage Database ---
         function saveSessionLocally(durationSeconds) {
@@ -87,8 +99,8 @@
         function updateStreakDisplay() {
             let sessions = JSON.parse(localStorage.getItem('zenSessions')) || [];
             if (sessions.length > 0) {
-                streakDisplay.innerText = `Total Sessions: ${sessions.length}`;
-                streakDisplay.classList.remove('hidden');
+                streakDisplay.innerText = `Sessions: ${sessions.length}`;
+                streakBadge.classList.remove('hidden');
             }
         }
         updateStreakDisplay();
@@ -102,7 +114,6 @@
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContext();
             
-            // Silent unlock
             const oscillator = audioCtx.createOscillator();
             const gainNode = audioCtx.createGain();
             gainNode.gain.value = 0;
@@ -165,6 +176,7 @@
                 statusText.innerText = "Session Complete 🙏";
                 timerDisplay.innerText = "00:00";
                 halo.classList.remove('animate-breathe');
+                halo.classList.add('opacity-0');
                 saveSessionLocally(sessionState.initialDuration);
             }
         }
@@ -175,7 +187,7 @@
             sessionState.intervalId = setInterval(tick, 1000);
             statusText.innerText = "Flowing...";
             halo.classList.add('animate-breathe');
-            halo.classList.remove('hidden');
+            halo.classList.remove('opacity-0', 'hidden');
         }
 
         function stopClock() {
@@ -190,12 +202,11 @@
             sessionState.timeLeft = 0;
             timerDisplay.innerText = "00:00";
             statusText.innerText = "Ready. Tell me a time.";
-            halo.classList.add('hidden');
+            halo.classList.add('opacity-0');
         }
 
-        // Fallback for offline mode
         function startFallbackTimer(minutes) {
-            initAudio(); // Ensure audio unlocks even if started via button
+            initAudio(); 
             sessionState.mode = 'timer';
             sessionState.timeLeft += (minutes * 60);
             sessionState.initialDuration = sessionState.timeLeft;
@@ -275,15 +286,19 @@
                     sessionState.isListeningEngineActive = true;
                     try { recognition.start(); } catch (e) {}
                     speakFeedback("I am listening.");
-                    micBtn.classList.add('bg-teal-500/50', 'scale-110');
-                    micBtn.classList.remove('bg-white/10');
+                    
+                    // UI Updates for Active State
+                    controlDock.classList.add('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
+                    micActiveDot.classList.remove('hidden');
                     statusText.innerText = "Always listening. Say a command.";
                 } else {
                     sessionState.isListeningEngineActive = false;
                     recognition.stop();
                     speakFeedback("Microphone asleep.");
-                    micBtn.classList.remove('bg-teal-500/50', 'scale-110');
-                    micBtn.classList.add('bg-white/10');
+                    
+                    // UI Updates for Inactive State
+                    controlDock.classList.remove('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
+                    micActiveDot.classList.add('hidden');
                     statusText.innerText = "Mic asleep. Tap to awaken.";
                 }
             };

@@ -146,6 +146,7 @@
             oscillator.stop(audioCtx.currentTime + 3);
         }
 
+
         function speakFeedback(text) {
             if (!window.speechSynthesis) return;
             window.speechSynthesis.cancel();
@@ -154,8 +155,16 @@
             utterance.rate = 0.9; 
             utterance.pitch = 0.9; 
             
-            utterance.onstart = () => { sessionState.isSpeaking = true; };
-            utterance.onend = () => { sessionState.isSpeaking = false; };
+            utterance.onstart = () => { 
+                sessionState.isSpeaking = true; 
+            };
+            
+            utterance.onend = () => { 
+                // The Echo Buffer: Wait 800ms after speaking finishes before unlocking the mic
+                setTimeout(() => {
+                    sessionState.isSpeaking = false; 
+                }, 800);
+            };
             
             window.speechSynthesis.speak(utterance);
         }
@@ -218,6 +227,7 @@
 
         // --- 5. Intent Parsing ---
         function parseCommand(transcript) {
+            // If the mute switch is on (or the echo buffer is active), ignore everything
             if (sessionState.isSpeaking) return;
 
             lastCommandText.innerText = `Heard: "${transcript}"`;
@@ -238,7 +248,8 @@
                 sessionState.initialDuration = totalSeconds;
                 timerDisplay.innerText = formatTime(sessionState.timeLeft);
                 
-                let feedback = "Setting timer for ";
+                // Vocabulary Isolation: Avoid saying "Set" or "Start"
+                let feedback = "Beginning ";
                 if (verbalMinutes > 0) feedback += `${verbalMinutes} minute${verbalMinutes > 1 ? 's' : ''}`;
                 if (verbalMinutes > 0 && verbalSeconds > 0) feedback += " and ";
                 if (verbalSeconds > 0) feedback += `${verbalSeconds} second${verbalSeconds > 1 ? 's' : ''}`;
@@ -250,22 +261,29 @@
 
             if (transcript.includes("pause") || transcript.includes("stop") || transcript.includes("hold")) {
                 stopClock();
-                speakFeedback("Timer paused.");
+                // Vocabulary Isolation: Avoid saying "Pause" or "Stop"
+                speakFeedback("Holding."); 
                 statusText.innerText = "Paused";
                 return;
             }
 
-            if (transcript.includes("resume") || transcript.includes("continue") || transcript.includes("start")) {
-                if (sessionState.timeLeft > 0) { speakFeedback("Resuming."); startClock(); }
+            if (transcript.includes("resume") || transcript.includes("continue")) {
+                if (sessionState.timeLeft > 0) { 
+                    // Vocabulary Isolation: Avoid saying "Resume"
+                    speakFeedback("Flowing."); 
+                    startClock(); 
+                }
                 return;
             }
 
             if (transcript.includes("reset") || transcript.includes("clear")) {
-                speakFeedback("Timer reset.");
+                // Vocabulary Isolation: Avoid saying "Reset"
+                speakFeedback("Wiped."); 
                 resetSession();
                 return;
             }
         }
+
 
         // --- 6. Continuous Listening Engine ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;

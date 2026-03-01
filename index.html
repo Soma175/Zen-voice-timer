@@ -7,61 +7,46 @@
     <title>Zen Voice Timer</title>
     
     <link rel="manifest" href="manifest.json">
-    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     
     <style>
         body { font-family: 'Inter', sans-serif; }
-        
-        /* Ultra-smooth breathing animation for the background glow */
         @keyframes breathe {
             0%, 100% { transform: scale(0.8); opacity: 0.1; }
             50% { transform: scale(1.2); opacity: 0.3; }
         }
         .animate-breathe { animation: breathe 8s infinite ease-in-out; }
-        
-        /* Deep OLED Black background */
         .bg-oled { background-color: #000000; }
-        
-        /* Modern text glow */
-        .text-glow {
-            text-shadow: 0 0 80px rgba(20, 184, 166, 0.4);
-        }
+        .text-glow { text-shadow: 0 0 80px rgba(20, 184, 166, 0.4); }
     </style>
 </head>
 <body class="bg-oled text-white flex flex-col h-[100dvh] overflow-hidden selection:bg-transparent relative">
 
     <div class="absolute top-0 left-0 w-full pt-12 flex flex-col items-center justify-center z-20 pointer-events-none">
         <p id="status" class="text-xs text-teal-400/80 tracking-[0.3em] uppercase font-semibold transition-opacity">
-            Tap the mic to awaken
+            BOOTING SYSTEM...
         </p>
         <p id="lastCommand" class="text-[10px] text-gray-500 mt-2 italic h-4"></p>
         <div id="streakBadge" class="mt-3 px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-md hidden">
             <p id="streakDisplay" class="text-[10px] text-gray-300 uppercase tracking-widest font-medium">Sessions: 0</p>
         </div>
     </div>
-
-
+    
     <div class="flex-1 flex items-center justify-center w-full relative z-0 mt-8">
         <div id="halo" class="absolute m-auto w-[80vw] h-[80vw] bg-teal-500 rounded-full blur-[100px] hidden opacity-0 transition-opacity duration-1000"></div>
-        
         <div id="timerDisplay" class="relative z-10 w-full text-center text-[24vw] leading-none font-black text-white tracking-tighter tabular-nums text-glow">
             00:00
         </div>
     </div>
 
-
     <div class="absolute bottom-10 left-0 w-full px-6 flex justify-center z-20">
         <div class="flex items-center gap-6 bg-[#111] border border-white/10 backdrop-blur-2xl px-8 py-4 rounded-full shadow-[0_20px_40px_rgba(0,0,0,0.8)] transition-all duration-300" id="controlDock">
-            
             <button id="micBtn" class="text-3xl hover:scale-110 active:scale-95 transition-transform focus:outline-none relative">
                 🎙️
                 <span id="micActiveDot" class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full hidden shadow-[0_0_10px_rgba(239,68,68,0.8)]"></span>
             </button>
-            
             <div class="w-px h-8 bg-white/10"></div>
-            
             <button onclick="startFallbackTimer(5)" class="text-xs font-semibold text-gray-400 hover:text-white uppercase tracking-widest transition-colors active:scale-95">+5m</button>
             <button onclick="stopClock()" class="text-xs font-semibold text-gray-400 hover:text-white uppercase tracking-widest transition-colors active:scale-95">Pause</button>
             <button onclick="resetSession()" class="text-xs font-semibold text-gray-400 hover:text-white uppercase tracking-widest transition-colors active:scale-95">Reset</button>
@@ -69,19 +54,13 @@
     </div>
 
     <script>
-                // --- 1. State Management ---
-        const sessionState = {
-            mode: null,
-            timeLeft: 0,
-            initialDuration: 0,
-            isRunning: false,
-            intervalId: null,
-            isListeningEngineActive: false,
-            isSpeaking: false
-        };
-
-        const timerDisplay = document.getElementById('timerDisplay');
+        // --- 1. System Health Check ---
         const statusText = document.getElementById('status');
+        statusText.innerText = "TAP THE MIC TO AWAKEN"; // If you see this, JS is working perfectly.
+
+        // --- 2. State & DOM ---
+        const sessionState = { mode: null, timeLeft: 0, initialDuration: 0, isRunning: false, intervalId: null, isListeningEngineActive: false, isSpeaking: false };
+        const timerDisplay = document.getElementById('timerDisplay');
         const lastCommandText = document.getElementById('lastCommand');
         const micBtn = document.getElementById('micBtn');
         const micActiveDot = document.getElementById('micActiveDot');
@@ -90,7 +69,7 @@
         const streakBadge = document.getElementById('streakBadge');
         const controlDock = document.getElementById('controlDock');
 
-        // NEW: Declare recognition globally so the TTS engine can control it
+        // --- 3. Speech API Init ---
         let recognition = null;
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
@@ -98,16 +77,12 @@
             recognition.continuous = true;
             recognition.interimResults = false;
             recognition.lang = 'en-US';
+        } else {
+            statusText.innerText = "BROWSER NOT SUPPORTED";
+            lastCommandText.innerText = "Please use Chrome or Safari.";
         }
 
-        // --- 2. Local Storage Database ---
-        function saveSessionLocally(durationSeconds) {
-            let sessions = JSON.parse(localStorage.getItem('zenSessions')) || [];
-            sessions.push({ id: Date.now(), duration: durationSeconds, date: new Date().toISOString() });
-            localStorage.setItem('zenSessions', JSON.stringify(sessions));
-            updateStreakDisplay();
-        }
-
+        // --- 4. Local Database ---
         function updateStreakDisplay() {
             let sessions = JSON.parse(localStorage.getItem('zenSessions')) || [];
             if (sessions.length > 0) {
@@ -117,7 +92,7 @@
         }
         updateStreakDisplay();
 
-        // --- 3. Audio & Voice Engine ---
+        // --- 5. Audio Synthesis ---
         let audioCtx = null;
         let audioUnlocked = false;
 
@@ -125,69 +100,52 @@
             if (audioUnlocked) return;
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContext();
-            
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            gainNode.gain.value = 0;
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.start(audioCtx.currentTime);
-            oscillator.stop(audioCtx.currentTime + 0.001);
-
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            gain.gain.value = 0;
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 0.001);
             audioUnlocked = true;
         }
 
         function playZenBell() {
             if (!audioCtx) return;
             if (audioCtx.state === 'suspended') audioCtx.resume();
-
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(432, audioCtx.currentTime); 
-            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-            gainNode.gain.linearRampToValueAtTime(1, audioCtx.currentTime + 0.05); 
-            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 3); 
-
-            oscillator.start(audioCtx.currentTime);
-            oscillator.stop(audioCtx.currentTime + 3);
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(432, audioCtx.currentTime); 
+            gain.gain.setValueAtTime(0, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + 0.05); 
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 3); 
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 3);
         }
 
         function speakFeedback(text) {
             if (!window.speechSynthesis) return;
             window.speechSynthesis.cancel();
-            
-            // 1. Lock the logic state
             sessionState.isSpeaking = true;
-            
-            // 2. HARD KILL THE MIC: Abort drops all currently buffered audio immediately
-            if (recognition && sessionState.isListeningEngineActive) {
-                recognition.abort(); 
-            }
+            if (recognition && sessionState.isListeningEngineActive) recognition.abort(); 
             
             const utterance = new SpeechSynthesisUtterance(text);
-            utterance.rate = 0.9; 
-            utterance.pitch = 0.9; 
-            
+            utterance.rate = 0.9; utterance.pitch = 0.9; 
             utterance.onend = () => { 
-                // 3. The Echo Buffer
                 setTimeout(() => {
                     sessionState.isSpeaking = false; 
-                    
-                    // 4. Reignite the mic only after the physical echo is gone
                     if (recognition && sessionState.isListeningEngineActive) {
                         try { recognition.start(); } catch (e) {}
                     }
                 }, 800);
             };
-            
             window.speechSynthesis.speak(utterance);
         }
 
-        // --- 4. Timer Logic ---
+        // --- 6. Timer Engine ---
         function formatTime(seconds) {
             let m = Math.floor(seconds / 60).toString().padStart(2, '0');
             let s = (seconds % 60).toString().padStart(2, '0');
@@ -202,11 +160,15 @@
                 stopClock();
                 playZenBell();
                 speakFeedback("Session complete. Namaste.");
-                statusText.innerText = "Session Complete 🙏";
+                statusText.innerText = "SESSION COMPLETE 🙏";
                 timerDisplay.innerText = "00:00";
                 halo.classList.remove('animate-breathe');
                 halo.classList.add('opacity-0');
-                saveSessionLocally(sessionState.initialDuration);
+                
+                let sessions = JSON.parse(localStorage.getItem('zenSessions')) || [];
+                sessions.push({ id: Date.now(), duration: sessionState.initialDuration, date: new Date().toISOString() });
+                localStorage.setItem('zenSessions', JSON.stringify(sessions));
+                updateStreakDisplay();
             }
         }
 
@@ -214,7 +176,7 @@
             if (sessionState.isRunning) return;
             sessionState.isRunning = true;
             sessionState.intervalId = setInterval(tick, 1000);
-            statusText.innerText = "Flowing...";
+            statusText.innerText = "FLOWING...";
             halo.classList.add('animate-breathe');
             halo.classList.remove('opacity-0', 'hidden');
         }
@@ -230,7 +192,7 @@
             sessionState.mode = null;
             sessionState.timeLeft = 0;
             timerDisplay.innerText = "00:00";
-            statusText.innerText = "Ready. Tell me a time.";
+            statusText.innerText = "READY.";
             halo.classList.add('opacity-0');
         }
 
@@ -243,105 +205,83 @@
             startClock();
         }
 
-                          // --- 5. Foolproof Intent Parsing ---
+        // --- 7. Voice Logic ---
         function parseCommand(transcript) {
             if (sessionState.isSpeaking) return;
-
-            // Strip all punctuation so "5 minutes." becomes "5 minutes"
             const cleanText = transcript.replace(/[.,!?]/g, '').toLowerCase().trim();
             lastCommandText.innerText = `Heard: "${cleanText}"`;
             
-            // Check absolute basic commands first
-            if (cleanText.includes("pause") || cleanText.includes("stop")) {
-                stopClock();
-                statusText.innerText = "Paused";
-                return;
-            }
-            if (cleanText.includes("resume") || cleanText.includes("continue")) {
-                startClock();
-                return;
-            }
-            if (cleanText.includes("reset") || cleanText.includes("clear")) {
-                resetSession();
-                return;
-            }
+            if (cleanText.includes("pause") || cleanText.includes("stop")) { stopClock(); speakFeedback("Holding."); statusText.innerText = "PAUSED"; return; }
+            if (cleanText.includes("resume") || cleanText.includes("continue")) { if (sessionState.timeLeft > 0) { speakFeedback("Flowing."); startClock(); } return; }
+            if (cleanText.includes("reset") || cleanText.includes("clear")) { speakFeedback("Wiped."); resetSession(); return; }
 
-            // Keyword Scanner: Look for the word 'minute', then check the word right before it
             let totalSeconds = 0;
             const words = cleanText.split(' ');
-            
             for (let i = 0; i < words.length; i++) {
-                if (words[i].includes("min") || words[i].includes("minute")) {
-                    // Grab whatever word came immediately before "minute"
+                if (words[i].includes("min") || words[i].includes("minute") || words[i].includes("sec") || words[i].includes("second")) {
                     let prevWord = words[i - 1];
                     let val = parseInt(prevWord);
-                    
-                    // If it's not a number (like "five"), check our dictionary
                     if (isNaN(val)) {
                         const textMap = {'one':1, 'a':1, 'two':2, 'three':3, 'four':4, 'five':5, 'six':6, 'seven':7, 'eight':8, 'nine':9, 'ten':10, 'fifteen':15, 'twenty':20, 'thirty':30};
                         val = textMap[prevWord] || 0;
                     }
-                    totalSeconds += (val * 60);
+                    if (words[i].includes("min")) totalSeconds += (val * 60);
+                    if (words[i].includes("sec")) totalSeconds += val;
                 }
             }
 
-            // If we successfully extracted time, start the clock
             if (totalSeconds > 0) {
                 sessionState.mode = 'timer';
                 sessionState.timeLeft = totalSeconds;
                 sessionState.initialDuration = totalSeconds;
                 timerDisplay.innerText = formatTime(sessionState.timeLeft);
+                speakFeedback(`Beginning timer.`);
                 startClock();
             } else {
-                lastCommandText.innerText += " [No time detected]";
+                lastCommandText.innerText += " [Time not recognized]";
             }
         }
 
-        // --- 6. Diagnostic Listening Engine ---
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRecognition) {
-            const recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = false;
-            recognition.lang = 'en-US';
-
+        // --- 8. Mic Controls ---
+        if (recognition) {
             micBtn.onclick = () => {
                 initAudio();
-                
+                if (!window.speechSynthesis.speaking) {
+                    let silentUtterance = new SpeechSynthesisUtterance('');
+                    silentUtterance.volume = 0;
+                    window.speechSynthesis.speak(silentUtterance);
+                }
+
                 if (!sessionState.isListeningEngineActive) {
                     sessionState.isListeningEngineActive = true;
                     try { 
                         recognition.start(); 
                         lastCommandText.innerText = "[System: Mic Started]";
                     } catch (e) {
-                        lastCommandText.innerText = `[System Error: ${e.message}]`;
+                        lastCommandText.innerText = `[Error: ${e.message}]`;
                     }
-                    
                     controlDock.classList.add('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
                     micActiveDot.classList.remove('hidden');
-                    statusText.innerText = "Listening...";
+                    statusText.innerText = "LISTENING...";
                 } else {
                     sessionState.isListeningEngineActive = false;
                     recognition.stop();
+                    speakFeedback("Microphone asleep.");
                     controlDock.classList.remove('border-teal-500/50', 'shadow-[0_0_30px_rgba(20,184,166,0.2)]');
                     micActiveDot.classList.add('hidden');
-                    statusText.innerText = "Mic asleep.";
+                    statusText.innerText = "MIC ASLEEP";
                 }
             };
 
             recognition.onresult = (event) => {
-                const currentResultIndex = event.results.length - 1;
-                const transcript = event.results[currentResultIndex][0].transcript;
+                const transcript = event.results[event.results.length - 1][0].transcript;
                 parseCommand(transcript);
             };
 
-            // Catch and display exact errors
             recognition.onerror = (event) => {
-                if (event.error !== 'no-speech') {
-                    lastCommandText.innerText = `[Mic Error: ${event.error}]`;
-                }
+                if (event.error !== 'no-speech') lastCommandText.innerText = `[Mic Error: ${event.error}]`;
                 if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                    statusText.innerText = "Hardware Blocked.";
+                    statusText.innerText = "HARDWARE BLOCKED";
                     sessionState.isListeningEngineActive = false;
                     micActiveDot.classList.add('hidden');
                 }
@@ -352,22 +292,14 @@
                     try { recognition.start(); } catch (e) {}
                 }
             };
-        } else {
-            statusText.innerText = "API NOT SUPPORTED.";
-            lastCommandText.innerText = "Please use Chrome or Safari.";
         }
 
-
-
-        // --- 7. PWA Registration ---
+        // --- 9. PWA ---
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(registration => console.log('ServiceWorker registered:', registration.scope))
-                    .catch(err => console.log('ServiceWorker registration failed:', err));
+                navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW failed:', err));
             });
         }
-
     </script>
 </body>
 </html>

@@ -241,8 +241,7 @@
                 lastCommandText.innerText += " [Time not recognized]";
             }
         }
-
-        // --- 8. Mic Controls & Background State Management ---
+// --- 8. Mic Controls & Background State Management ---
         if (recognition) {
             recognition.onstart = () => { isHardwareListening = true; };
             
